@@ -1,0 +1,66 @@
+import os
+import requests
+from fastapi import FastAPI
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+app = FastAPI()
+
+# Load API keys
+groq_api_key = os.getenv("GROQ_API_KEY")
+weather_api_key = os.getenv("WEATHER_API_KEY")
+
+client = Groq(api_key=groq_api_key)
+
+class ChatRequest(BaseModel):
+    message: str
+    city: str
+
+
+def get_weather(city):
+
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={weather_api_key}&units=metric"
+
+    response = requests.get(url).json()
+
+    temp = response["main"]["temp"]
+    weather = response["weather"][0]["description"]
+
+    return temp, weather
+
+
+@app.post("/chat")
+def fashion_chatbot(request: ChatRequest):
+
+    temp, weather = get_weather(request.city)
+
+    prompt = f"""
+    You are StyleSense AI, a fashion recommendation expert.
+
+    Weather details:
+    Temperature: {temp}°C
+    Weather: {weather}
+
+    User request:
+    {request.message}
+
+    Suggest suitable outfits based on weather and style preference.
+    Keep answer short and helpful.
+    """
+
+    completion = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+
+    reply = completion.choices[0].message.content
+
+    return {
+        "weather": weather,
+        "temperature": temp,
+        "response": reply
+    }
