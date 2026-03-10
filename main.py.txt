@@ -1,0 +1,124 @@
+import os
+import requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from groq import Groq
+
+# Load environment variables
+load_dotenv()
+
+app = FastAPI(title="StyleSense AI Backend")
+
+# Initialize Gro/q client
+load_dotenv()
+GROQ_API_KEY = os.getenv("gsk_...92aC")
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY not found in .env")
+if not OPENWEATHER_API_KEY:
+    print("WARNING: OPENWEATHER_API_KEY not found in .env")
+
+groq_client = Groq(api_key=gsk_...92aC)
+
+class ChatRequest(BaseModel):
+    message: str
+    city: str = "London"
+    occasion: str = "Casual"
+    style_preference: str = "Minimalist"
+    gender: str = "Unisex"
+    focus_item: str = ""  # Specific item the user wants to style
+
+def get_weather(city: str):
+    if not OPENWEATHER_API_KEY:
+        return None
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&units=metric"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "temp": data["main"]["temp"],
+                "feels_like": data["main"]["feels_like"],
+                "description": data["weather"][0]["description"],
+                "humidity": data["main"]["humidity"],
+                "wind_speed": data["wind"]["speed"],
+                "icon": data["weather"][0]["icon"]
+            }
+    except Exception as e:
+        print(f"Error fetching weather: {e}")
+    return None
+
+@app.get("/")
+async def health_check():
+    return {
+        "status": "online",
+        "service": "StyleSense AI Backend",
+        "groq_configured": bool(gsk_...92aC),
+        "weather_configured": bool(OPENWEATHER_API_KEY)
+    }
+
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    weather_info = get_weather(request.city)
+    
+    weather_context = ""
+    if weather_info:
+        weather_context = (
+            f" Current Climate in {request.city}: {weather_info['temp']}°C "
+            f"(Feels like {weather_info['feels_like']}°C), {weather_info['description']}, "
+            f"Humidity: {weather_info['humidity']}%, Wind: {weather_info['wind_speed']}m/s."
+        )
+    else:
+        weather_context = " Weather information is currently unavailable. Assume mild, clear conditions."
+
+    focus_context = ""
+    if request.focus_item:
+        focus_context = f" The user specifically wants to style their '{request.focus_item}'."
+
+    system_prompt = (
+        "You are StyleSense, an AI-powered fashion stylist. "
+        "Your job is to recommend outfits based on the user's request, occasion, weather, and personal style. "
+        f"The user identifies as {request.gender} and prefers a {request.style_preference} style. "
+        f"They are dressing for a {request.occasion} occasion.{focus_context} "
+        f"WEATHER CONTEXT: {weather_context} "
+        "\n\nGuidelines:\n"
+        "1. Suggest complete outfits including top, bottom, footwear, and accessories.\n"
+        "2. Consider the occasion (casual, party, office, festival, etc.).\n"
+        "3. Consider weather conditions (hot, cold, rainy).\n"
+        "4. Suggest color combinations and textures.\n"
+        "5. Keep recommendations practical and trendy.\n"
+        "6. If the user provides limited information, ask clarifying questions.\n"
+        "7. Incorporate 2024-2025 high-fashion trends where appropriate.\n"
+        "\nOutput format (STRICTLY FOLLOW THIS):\n\n"
+        "Outfit Recommendation:\n"
+        "- Top:\n"
+        "- Bottom:\n"
+        "- Footwear:\n"
+        "- Accessories:\n\n"
+        "Style Tips:\n"
+        "- Tip 1\n"
+        "- Tip 2\n\n"
+        "Color Palette:\n"
+        "- Color suggestions\n\n"
+        "Optional Alternative Outfit:\n"
+    )
+
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.message}
+            ],
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        return {"response": completion.choices[0].message.content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
